@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class DetectedBiomarkerRow(BaseModel):
@@ -87,3 +87,23 @@ class HealthResponse(BaseModel):
     tesseract_path: Optional[str] = None
     supported_extensions: List[str]
     max_file_size_mb: int
+
+# Chat Schemas
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str = Field(..., description="Message text")
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=1000, description="Patient's question about the report")
+    report_title: str = Field(default="Laboratory Report", description="Title of report")
+    report_text: Optional[str] = Field(None, description="Raw extracted text if available")
+    biomarkers: List[Dict[str, Any]] = Field(default_factory=list, description="Structured biomarker records")
+    chat_history: List[ChatMessage] = Field(default_factory=list, description="Prior conversation context")
+
+class ChatResponse(BaseModel):
+    reply: str = Field(..., description="AI response grounded in the report")
+    grounded_in_report: bool = Field(default=True, description="False if question asked for info outside report")
+    disclaimer: str = Field(
+        default="For educational guidance only. Does not replace professional clinical evaluation.",
+        description="Safety disclaimer"
+    )

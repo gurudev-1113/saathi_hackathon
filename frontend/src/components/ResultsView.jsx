@@ -11,17 +11,33 @@ import {
   Check, 
   TrendingUp, 
   TrendingDown, 
-  FileText,
-  Sparkles,
-  Info,
-  Code2
+  FileText, 
+  Sparkles, 
+  Info, 
+  Code2, 
+  Cpu, 
+  AlertCircle,
+  Bookmark,
+  BookmarkCheck,
+  Cloud,
+  HardDrive,
+  Trash2
 } from 'lucide-react'
+import { saveReportToHistory, isSupabaseConfigured } from '../services/supabase'
+import ReportChat from './ReportChat'
 
-export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
+export default function ResultsView({ report, user, onBackToUpload, onSwitchDemo, onDeleteSavedReport }) {
   const [activeFilter, setActiveFilter] = useState('all') // 'all' | 'attention' | 'normal'
   const [searchTerm, setSearchTerm] = useState('')
   const [copiedQuestions, setCopiedQuestions] = useState(false)
   const [showRawText, setShowRawText] = useState(false)
+  
+  // Save State
+  const [isSaved, setIsSaved] = useState(Boolean(report.isFromHistory))
+  const [saving, setSaving] = useState(false)
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [showSaveExplainer, setShowSaveExplainer] = useState(false)
 
   if (!report) return null
 
@@ -36,10 +52,10 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
     if (!matchesSearch) return false
 
     if (activeFilter === 'attention') {
-      return bm.status === 'elevated' || bm.status === 'low'
+      return bm.status === 'elevated' || bm.status === 'low' || bm.status === 'out_of_range'
     }
     if (activeFilter === 'normal') {
-      return bm.status === 'normal'
+      return bm.status === 'normal' || bm.status === 'within_range'
     }
     return true
   })
@@ -58,6 +74,32 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
     window.print()
   }
 
+  const handleSaveReport = async () => {
+    if (!user) {
+      alert('Please sign in to save reports to your history.')
+      return
+    }
+
+    setSaving(true)
+    setSaveError('')
+    setSaveSuccessMsg('')
+
+    try {
+      const res = await saveReportToHistory(user, report)
+      setIsSaved(true)
+      if (res.isCloud) {
+        setSaveSuccessMsg('Saved to Supabase with Row Level Security.')
+      } else {
+        setSaveSuccessMsg('Saved to local browser history (Demo Mode).')
+      }
+      setTimeout(() => setSaveSuccessMsg(''), 4000)
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save report.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-16">
       {/* Top Action Bar */}
@@ -70,7 +112,50 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
           Explain Another Report
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Optional Save to History Button */}
+          {user && !report.isFromHistory && (
+            <div className="relative">
+              <button
+                onClick={handleSaveReport}
+                disabled={saving || isSaved}
+                className={`inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition shadow-sm ${
+                  isSaved
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-600 shadow-teal-600/20 active:scale-95'
+                }`}
+              >
+                {saving ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : isSaved ? (
+                  <>
+                    <BookmarkCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Saved to History
+                  </>
+                ) : (
+                  <>
+                    <Bookmark className="w-3.5 h-3.5" />
+                    Save to My History
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Delete Option if Viewing from History */}
+          {report.isFromHistory && onDeleteSavedReport && (
+            <button
+              onClick={() => onDeleteSavedReport(report.id, report.title)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3.5 py-2 rounded-xl transition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete from History
+            </button>
+          )}
+
           {onSwitchDemo && !isApiExtracted && (
             <button
               onClick={onSwitchDemo}
@@ -102,20 +187,75 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
         </div>
       </div>
 
+      {/* Save Success/Error Feedback Alerts */}
+      {saveSuccessMsg && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{saveSuccessMsg}</span>
+          </div>
+          <button
+            onClick={() => setShowSaveExplainer(!showSaveExplainer)}
+            className="text-[11px] underline font-semibold text-emerald-900"
+          >
+            What was stored?
+          </button>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-shake">
+          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
+
+      {/* Storage Transparency Explainer (Collapsible) */}
+      {showSaveExplainer && (
+        <div className="p-4 rounded-2xl bg-slate-900 text-slate-200 text-xs space-y-2 animate-fadeIn border border-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <span className="font-bold text-teal-300">Data Storage & Privacy Disclosure</span>
+            <button
+              onClick={() => setShowSaveExplainer(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="leading-relaxed">
+            <strong>What is stored:</strong> Only your structured summary (report title, date, parameter names, observed numbers, and educational plain-language definitions).
+          </p>
+          <p className="leading-relaxed text-slate-300">
+            <strong>What is NOT stored:</strong> We never store, upload, or retain your raw PDF files, scanned images, patient IDs, or camera photos. You can delete saved records at any time.
+          </p>
+        </div>
+      )}
+
       {/* Prominent Educational Disclaimer Banner */}
       <div className="bg-amber-50/90 border-l-4 border-amber-500 p-4 sm:p-5 rounded-r-2xl shadow-sm">
         <div className="flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
           <div className="space-y-1">
             <h3 className="text-xs sm:text-sm font-bold text-amber-900 uppercase tracking-wider">
-              Educational & Informational Notice
+              Educational & Informational Notice Only
             </h3>
             <p className="text-xs text-amber-800 leading-relaxed">
-              ReportSaathi provides text extraction and terminology definitions strictly for health literacy. It does <strong>not</strong> provide medical diagnoses, treatment changes, or clinical evaluations. Missing values or reference ranges are never invented. Always consult your treating physician.
+              ReportSaathi provides patient-friendly translations and terminology definitions strictly for educational purposes. It does <strong>not</strong> provide medical diagnoses, treatment advice, or prescriptions. Values and reference ranges are never invented. Always consult your qualified physician for medical decisions.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Unclear Report Warning Banner */}
+      {report.unclearWarning && (
+        <div className="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-start gap-3 text-rose-800 text-xs">
+          <AlertCircle className="w-4 h-4 text-rose-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <span className="font-bold block text-rose-900 mb-0.5">Clarity Advisory</span>
+            <span>{report.unclearWarning}</span>
+          </div>
+        </div>
+      )}
 
       {/* Raw Extracted Text Viewer Modal / Accordion */}
       {showRawText && report.rawText && (
@@ -143,11 +283,21 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
                 {report.specimen || 'Clinical Lab Specimen'}
               </span>
-              {report.extractionMethod && (
-                <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                  Method: {report.extractionMethod}
+
+              {report.aiEngine && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <Cpu className="w-3 h-3 text-indigo-500" />
+                  {report.aiEngine === 'gemini' ? 'Gemini AI Explanation' : 'Factual Extractor'}
                 </span>
               )}
+
+              {report.isFromHistory && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  Loaded from Saved History
+                </span>
+              )}
+
               <span className="text-xs text-slate-400">• Report ID: {report.id}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -162,7 +312,7 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
           <div className="flex items-center gap-2">
             <div className="bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-2xl text-center min-w-[70px]">
               <span className="block text-lg font-black text-emerald-700">
-                {report.summary?.normalCount ?? (report.biomarkers?.filter(b => b.status === 'normal').length || 0)}
+                {report.summary?.normalCount ?? 0}
               </span>
               <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
                 Normal
@@ -171,7 +321,7 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
 
             <div className="bg-amber-50 border border-amber-200 px-3.5 py-2 rounded-2xl text-center min-w-[70px]">
               <span className="block text-lg font-black text-amber-700">
-                {report.summary?.attentionCount ?? (report.biomarkers?.filter(b => b.status !== 'normal').length || 0)}
+                {report.summary?.attentionCount ?? 0}
               </span>
               <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
                 Attention
@@ -183,7 +333,7 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
                 {report.biomarkers?.length || 0}
               </span>
               <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                Detected
+                Extracted
               </span>
             </div>
           </div>
@@ -193,7 +343,7 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
         <div className="pt-6 space-y-3">
           <div className="flex items-center gap-2 text-teal-700">
             <Sparkles className="w-4 h-4" />
-            <h2 className="text-sm font-bold uppercase tracking-wider">Document Summary</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider">Overall Plain-Language Assessment</h2>
           </div>
           <p className="text-base font-bold text-slate-800 leading-snug">
             "{report.summary?.headline || 'Extraction and Analysis Complete'}"
@@ -208,8 +358,10 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Extracted Laboratory Values</h2>
-            <p className="text-xs text-slate-500">Factually extracted from document text without inventing missing values.</p>
+            <h2 className="text-xl font-bold text-slate-900">Extracted Laboratory Values & Plain Explanations</h2>
+            <p className="text-xs text-slate-500">
+              Source facts from the report are strictly separated from educational AI explanations.
+            </p>
           </div>
 
           {/* Filter Chips & Search Bar */}
@@ -257,9 +409,8 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
         {/* Biomarkers Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredBiomarkers.map((bm, idx) => {
-            const isElevated = bm.status === 'elevated'
-            const isLow = bm.status === 'low'
-            const isNormal = bm.status === 'normal'
+            const isOut = bm.status === 'elevated' || bm.status === 'low' || bm.status === 'out_of_range'
+            const isNormal = bm.status === 'normal' || bm.status === 'within_range'
 
             return (
               <div
@@ -281,28 +432,28 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
 
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                        isElevated
+                        isOut
                           ? 'bg-amber-100 text-amber-800'
-                          : isLow
-                          ? 'bg-sky-100 text-sky-800'
-                          : 'bg-emerald-100 text-emerald-800'
+                          : isNormal
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-700'
                       }`}
                     >
-                      {isElevated ? (
+                      {isOut ? (
                         <TrendingUp className="w-3.5 h-3.5" />
-                      ) : isLow ? (
-                        <TrendingDown className="w-3.5 h-3.5" />
-                      ) : (
+                      ) : isNormal ? (
                         <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Info className="w-3.5 h-3.5" />
                       )}
-                      {bm.statusLabel || (isNormal ? 'Normal' : 'Out of Range')}
+                      {bm.statusLabel || (isNormal ? 'Normal' : isOut ? 'Review' : 'Reported')}
                     </span>
                   </div>
 
-                  {/* Quantitative Values */}
+                  {/* Quantitative Source Values */}
                   <div className="bg-slate-50 rounded-xl p-3 mb-3 border border-slate-100 flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-medium">Observed Value</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">Source Value</span>
                       <span className="text-lg font-black text-slate-900">
                         {bm.value}{' '}
                         <span className="text-xs font-semibold text-slate-500">{bm.unit || ''}</span>
@@ -310,27 +461,36 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block font-medium">Standard Interval</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">Report Reference Range</span>
                       <span className="text-xs font-bold text-slate-700">
-                        {bm.minNormal && bm.maxNormal
-                          ? `${bm.minNormal} - ${bm.maxNormal} ${bm.unit || ''}`
-                          : bm.referenceInterval || 'As specified by lab'}
+                        {bm.referenceInterval || 'Not stated by lab'}
                       </span>
                     </div>
                   </div>
 
                   {/* Plain Language Meaning */}
                   {bm.plainMeaning && (
-                    <div className="space-y-1 text-xs text-slate-700 leading-relaxed">
-                      <strong className="text-slate-900 font-semibold">In simple terms:</strong> {bm.plainMeaning}
+                    <div className="space-y-1 text-xs text-slate-700 leading-relaxed bg-teal-50/40 p-2.5 rounded-xl border border-teal-100/60">
+                      <strong className="text-teal-900 font-semibold block text-[11px] uppercase tracking-wider">
+                        Plain-Language Explanation:
+                      </strong>
+                      <p>{bm.plainMeaning}</p>
                     </div>
+                  )}
+
+                  {/* Clinical Context */}
+                  {bm.clinicalContext && (
+                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                      <span className="font-semibold text-slate-700">Clinical Context:</span> {bm.clinicalContext}
+                    </p>
                   )}
                 </div>
 
-                {bm.lifestyleNote && (
+                {/* Clarity or Lifestyle Note */}
+                {(bm.clarityNote || bm.lifestyleNote) && (
                   <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex items-start gap-1.5">
                     <Info className="w-3.5 h-3.5 text-teal-600 mt-0.5 flex-shrink-0" />
-                    <span>{bm.lifestyleNote}</span>
+                    <span>{bm.clarityNote || bm.lifestyleNote}</span>
                   </div>
                 )}
               </div>
@@ -395,6 +555,9 @@ export default function ResultsView({ report, onBackToUpload, onSwitchDemo }) {
           </div>
         </div>
       )}
+
+      {/* Report-Specific AI Educational Chat Assistant */}
+      <ReportChat report={report} />
     </div>
   )
 }

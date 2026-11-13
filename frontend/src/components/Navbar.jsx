@@ -1,9 +1,8 @@
 import React, { useState } from 'react'
-import { HeartPulse, Upload, FileText, User, LogOut, Menu, X, ShieldAlert } from 'lucide-react'
+import { HeartPulse, Upload, FileText, User, LogOut, Menu, X, Database } from 'lucide-react'
 
 export default function Navbar({ 
   user, 
-  onOpenAuth, 
   onLogout, 
   currentView, 
   onNavigate,
@@ -26,10 +25,10 @@ export default function Navbar({
             <div className="flex items-center gap-2">
               <span className="text-xl font-bold text-slate-900 tracking-tight">ReportSaathi</span>
               <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-                Demo
+                Medical Explainer
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 hidden sm:block">Plain-language medical report explainer</p>
+            <p className="text-[11px] text-slate-500 hidden sm:block">Plain-language laboratory health companion</p>
           </div>
         </div>
 
@@ -53,6 +52,15 @@ export default function Navbar({
             Upload Report
           </button>
           <button
+            onClick={() => onNavigate('history')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
+              currentView === 'history' ? 'bg-teal-50 text-teal-700 font-semibold' : 'hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <Database className="w-4 h-4 text-teal-600" />
+            Saved Reports
+          </button>
+          <button
             onClick={() => onLoadDemo(0)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:text-slate-900 hover:bg-slate-50 transition"
           >
@@ -61,37 +69,30 @@ export default function Navbar({
           </button>
         </nav>
 
-        {/* Auth Section */}
+        {/* User Session & Logout */}
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-xs uppercase border border-teal-200">
+                <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-xs uppercase border border-teal-200 shadow-sm">
                   {user.name ? user.name[0] : 'U'}
                 </div>
                 <div className="text-left text-xs">
-                  <span className="font-semibold text-slate-800 block truncate max-w-[130px]">{user.email}</span>
+                  <span className="font-semibold text-slate-800 block truncate max-w-[130px]">{user.name || user.email}</span>
                   <span className="text-[10px] text-emerald-600 font-medium">Logged in</span>
                 </div>
               </div>
 
               <button
                 onClick={onLogout}
-                title="Log out"
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                title="Log out of ReportSaathi"
+                className="flex items-center gap-1 py-1.5 px-2.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold transition border border-transparent hover:border-rose-200"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log Out</span>
               </button>
             </div>
-          ) : (
-            <button
-              onClick={onOpenAuth}
-              className="inline-flex items-center gap-2 py-2 px-4 rounded-xl text-sm font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 transition"
-            >
-              <User className="w-4 h-4" />
-              Sign In
-            </button>
-          )}
+          ) : null}
         </div>
 
         {/* Mobile menu button */}
@@ -112,7 +113,7 @@ export default function Navbar({
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3 shadow-lg">
+        <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-2 shadow-lg">
           <button
             onClick={() => { onNavigate('landing'); setMobileMenuOpen(false) }}
             className="w-full text-left py-2 px-3 text-sm font-medium rounded-lg hover:bg-slate-50"
@@ -127,22 +128,22 @@ export default function Navbar({
             Upload Report
           </button>
           <button
+            onClick={() => { onNavigate('history'); setMobileMenuOpen(false) }}
+            className="w-full text-left py-2 px-3 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-2"
+          >
+            <Database className="w-4 h-4 text-teal-600" />
+            Saved Reports
+          </button>
+          <button
             onClick={() => { onLoadDemo(0); setMobileMenuOpen(false) }}
             className="w-full text-left py-2 px-3 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-2"
           >
             <FileText className="w-4 h-4 text-slate-500" />
-            Sample Report: Metabolic & Lipid
-          </button>
-          <button
-            onClick={() => { onLoadDemo(1); setMobileMenuOpen(false) }}
-            className="w-full text-left py-2 px-3 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-2"
-          >
-            <FileText className="w-4 h-4 text-slate-500" />
-            Sample Report: Complete Blood Count
+            Sample Reports
           </button>
 
           <div className="pt-3 border-t border-slate-100">
-            {user ? (
+            {user && (
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold text-slate-800">{user.email}</p>
@@ -155,13 +156,6 @@ export default function Navbar({
                   Log Out
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={() => { onOpenAuth(); setMobileMenuOpen(false) }}
-                className="w-full py-2.5 rounded-xl text-center text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700"
-              >
-                Sign In / Register
-              </button>
             )}
           </div>
         </div>

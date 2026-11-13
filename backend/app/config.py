@@ -1,9 +1,21 @@
 import os
 import shutil
-from typing import List
-from pydantic_settings import BaseSettings
+from typing import List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(BACKEND_DIR)
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=[
+            os.path.join(BACKEND_DIR, ".env"),
+            os.path.join(ROOT_DIR, ".env"),
+            ".env",
+        ],
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
     PROJECT_NAME: str = "ReportSaathi API"
     VERSION: str = "0.2.0"
     ENVIRONMENT: str = "development"
@@ -49,10 +61,5 @@ class Settings(BaseSettings):
             if os.path.isfile(p):
                 return p
         return None
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
 
 settings = Settings()

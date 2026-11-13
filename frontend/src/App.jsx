@@ -4,18 +4,19 @@ import LandingPage from './components/LandingPage'
 import UploadArea from './components/UploadArea'
 import ProcessingState from './components/ProcessingState'
 import ResultsView from './components/ResultsView'
-import AuthModal from './components/AuthModal'
+import SavedHistoryView from './components/SavedHistoryView'
+import AuthPage from './components/AuthPage'
 import { sampleReports } from './data/sampleReports'
+import { deleteReportFromHistory } from './services/supabase'
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('landing') // 'landing' | 'upload' | 'processing' | 'results'
+  const [currentView, setCurrentView] = useState('landing') // 'landing' | 'upload' | 'processing' | 'results' | 'history'
   const [activeReport, setActiveReport] = useState(sampleReports[0])
   const [activeDemoIndex, setActiveDemoIndex] = useState(0)
   const [uploadedFile, setUploadedFile] = useState(null)
-  const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [user, setUser] = useState(() => {
     try {
-      const saved = localStorage.getItem('reportsaathi_demo_user')
+      const saved = localStorage.getItem('reportsaathi_user')
       return saved ? JSON.parse(saved) : null
     } catch {
       return null
@@ -24,8 +25,9 @@ export default function App() {
 
   const handleLoginSuccess = (userObj) => {
     setUser(userObj)
+    setCurrentView('landing')
     try {
-      localStorage.setItem('reportsaathi_demo_user', JSON.stringify(userObj))
+      localStorage.setItem('reportsaathi_user', JSON.stringify(userObj))
     } catch (e) {
       console.error(e)
     }
@@ -34,7 +36,7 @@ export default function App() {
   const handleLogout = () => {
     setUser(null)
     try {
-      localStorage.removeItem('reportsaathi_demo_user')
+      localStorage.removeItem('reportsaathi_user')
     } catch (e) {
       console.error(e)
     }
@@ -60,86 +62,79 @@ export default function App() {
 
   const handleProcessingComplete = (apiResult) => {
     if (apiResult && apiResult.extracted_text) {
-      // Map live backend API response
-      const detectedBiomarkers = (apiResult.detected_rows || []).map((row, idx) => {
-        let status = 'normal'
-        let statusLabel = 'Within Normal Limits'
-        let minVal = null
-        let maxVal = null
+      const gemini = apiResult.gemini_analysis
+      let biomarkers = []
+      let headline = `Extraction complete: ${apiResult.character_count} characters.`
+      let overview = apiResult.message
+      let doctorQuestions = []
+      let unclearWarning = null
 
-        // Factual status determination if reference range numbers exist
-        if (row.reference_interval) {
-          const parts = row.reference_interval.match(/(\d+(?:\.\d+)?)/g)
-          if (parts && parts.length >= 2) {
-            minVal = parseFloat(parts[0])
-            maxVal = parseFloat(parts[1])
-            const numVal = parseFloat(row.observed_value)
-            if (!isNaN(numVal) && !isNaN(minVal) && !isNaN(maxVal)) {
-              if (numVal < minVal) {
-                status = 'low'
-                statusLabel = 'Below Reference'
-              } else if (numVal > maxVal) {
-                status = 'elevated'
-                statusLabel = 'Above Reference'
-              }
-            }
+      if (gemini) {
+        headline = gemini.overall_headline
+        overview = gemini.overall_plain_summary
+        doctorQuestions = gemini.suggested_doctor_questions || []
+        unclearWarning = gemini.unclear_report_warning
+
+        biomarkers = (gemini.explained_biomarkers || []).map((b, idx) => {
+          const isNormal = b.ai_explanation.status_indicator === 'within_range'
+          const isOut = b.ai_explanation.status_indicator === 'out_of_range'
+
+          return {
+            id: `bm-gemini-${idx}`,
+            name: b.source_fact.test_name,
+            category: 'Analyzed Laboratory Finding',
+            value: b.source_fact.extracted_value,
+            unit: b.source_fact.unit || '',
+            referenceInterval: b.source_fact.reference_range || 'Not provided in document',
+            status: isNormal ? 'normal' : isOut ? 'elevated' : 'unclear',
+            statusLabel: isNormal ? 'Optimal' : isOut ? 'Review Needed' : 'Reported',
+            plainMeaning: b.ai_explanation.simple_language_explanation,
+            clinicalContext: b.ai_explanation.clinical_context,
+            clarityNote: b.ai_explanation.clarity_note,
           }
-        }
+        })
+      }
 
-        return {
-          id: `bm-api-${idx}`,
-          name: row.test_name || `Report Item ${idx + 1}`,
-          category: 'Extracted Lab Marker',
-          value: row.observed_value || 'Reported',
+      // Fallback if no structured biomarkers in gemini
+      if (biomarkers.length === 0 && apiResult.detected_rows) {
+        biomarkers = apiResult.detected_rows.map((row, idx) => ({
+          id: `bm-row-${idx}`,
+          name: row.test_name || `Test ${idx + 1}`,
+          category: 'Extracted Marker',
+          value: row.observed_value || 'Present',
           unit: row.unit || '',
-          minNormal: minVal,
-          maxNormal: maxVal,
-          referenceInterval: row.reference_interval || 'Not specified in line',
-          status: status,
-          statusLabel: statusLabel,
-          plainMeaning: `Directly extracted from document line: "${row.raw_line}".`,
-          lifestyleNote: 'Consult your clinician to interpret this finding in the context of your overall health profile.',
-        }
-      })
-
-      // Generate focused doctor questions based on detected tests
-      const doctorQuestions = (apiResult.detected_rows || [])
-        .slice(0, 4)
-        .map(
-          (row) =>
-            `Could you explain what my observed ${row.test_name} result of ${row.observed_value} ${row.unit || ''} means for my health?`
-        )
-
-      if (doctorQuestions.length === 0) {
-        doctorQuestions.push(
-          'What are the key clinical takeaways from this laboratory report?',
-          'Do any of these extracted values indicate a need for follow-up testing or lifestyle modifications?'
-        )
+          referenceInterval: row.reference_interval || 'Not stated on report',
+          status: 'normal',
+          statusLabel: 'Observed',
+          plainMeaning: `Reported value in document: ${row.observed_value} ${row.unit || ''}`,
+          clinicalContext: 'Discuss with your physician to evaluate in context.',
+        }))
       }
 
       const parsedReport = {
-        id: `api-${Date.now()}`,
+        id: `rep-${Date.now()}`,
         isRealExtraction: true,
         title: apiResult.filename,
-        labName: 'Document Upload via FastAPI Extraction',
+        labName: 'Processed via FastAPI & Gemini API Engine',
         date: new Date().toISOString().split('T')[0],
-        specimen: `${apiResult.file_type} File (${(apiResult.file_size_bytes / 1024).toFixed(1)} KB)`,
+        specimen: `${apiResult.file_type} Document (${(apiResult.file_size_bytes / 1024).toFixed(1)} KB)`,
         extractionMethod: apiResult.extraction_method,
+        aiEngine: apiResult.ai_engine_used,
+        aiStatusMessage: apiResult.ai_status_message,
         rawText: apiResult.extracted_text,
-        message: apiResult.message,
+        unclearWarning: unclearWarning,
         summary: {
-          headline: `Successfully parsed ${apiResult.character_count} characters across ${apiResult.page_count} page(s).`,
-          overview: `ReportSaathi extracted the document text using ${apiResult.extraction_method}. A total of ${detectedBiomarkers.length} biomarker row(s) were identified with observed numerical metrics.`,
-          normalCount: detectedBiomarkers.filter((b) => b.status === 'normal').length,
-          attentionCount: detectedBiomarkers.filter((b) => b.status !== 'normal').length,
+          headline: headline,
+          overview: overview,
+          normalCount: biomarkers.filter((b) => b.status === 'normal').length,
+          attentionCount: biomarkers.filter((b) => b.status !== 'normal').length,
         },
-        biomarkers: detectedBiomarkers,
+        biomarkers: biomarkers,
         doctorQuestions: doctorQuestions,
       }
 
       setActiveReport(parsedReport)
     } else {
-      // Demo fallback
       setActiveReport(sampleReports[0])
     }
 
@@ -147,17 +142,55 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const handleOpenSavedReport = (historyItem) => {
+    const reportFromHistory = {
+      id: historyItem.id,
+      isFromHistory: true,
+      title: historyItem.report_title,
+      labName: 'Saved Report Summary (Supabase / Local)',
+      date: historyItem.report_date,
+      specimen: historyItem.specimen_type || 'Saved Specimen',
+      aiEngine: historyItem.ai_engine || 'gemini',
+      summary: {
+        headline: historyItem.headline,
+        overview: historyItem.summary_overview,
+        normalCount: historyItem.normal_count,
+        attentionCount: historyItem.attention_count,
+      },
+      biomarkers: historyItem.biomarkers || [],
+      doctorQuestions: historyItem.doctor_questions || [],
+    }
+    setActiveReport(reportFromHistory)
+    setCurrentView('results')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleDeleteSavedReport = async (id, title) => {
+    if (!window.confirm(`Delete "${title}" from your history?`)) return
+    try {
+      await deleteReportFromHistory(id)
+      setCurrentView('history')
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`)
+    }
+  }
+
   const handleNavigate = (view) => {
     setCurrentView(view)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // 1. If not logged in, show dedicated full-screen Login / Create Account page first!
+  if (!user) {
+    return <AuthPage onLoginSuccess={handleLoginSuccess} />
+  }
+
+  // 2. Once logged in, show complete Dashboard experience
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-teal-500 selection:text-white">
       {/* Top Navigation */}
       <Navbar
         user={user}
-        onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={handleLogout}
         currentView={currentView}
         onNavigate={handleNavigate}
@@ -180,6 +213,14 @@ export default function App() {
           />
         )}
 
+        {currentView === 'history' && (
+          <SavedHistoryView
+            user={user}
+            onOpenReport={handleOpenSavedReport}
+            onNavigateToUpload={() => handleNavigate('upload')}
+          />
+        )}
+
         {currentView === 'processing' && (
           <ProcessingState
             file={uploadedFile}
@@ -192,8 +233,10 @@ export default function App() {
         {currentView === 'results' && (
           <ResultsView
             report={activeReport}
+            user={user}
             onBackToUpload={() => handleNavigate('upload')}
             onSwitchDemo={handleSwitchDemo}
+            onDeleteSavedReport={handleDeleteSavedReport}
           />
         )}
       </main>
@@ -213,13 +256,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-
-      {/* Auth Modal (Login / Register) */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
-      />
     </div>
   )
 }

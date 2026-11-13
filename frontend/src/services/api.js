@@ -32,3 +32,44 @@ export async function uploadAndAnalyzeReport(file) {
 
   return response.json()
 }
+
+export async function sendReportChatMessage({ message, reportTitle, reportText, biomarkers, chatHistory }) {
+  const payload = {
+    message: message.trim(),
+    report_title: reportTitle || 'Laboratory Report',
+    report_text: reportText || null,
+    biomarkers: (biomarkers || []).map((b) => ({
+      name: b.name,
+      value: b.value,
+      unit: b.unit,
+      referenceInterval: b.referenceInterval,
+      plainMeaning: b.plainMeaning,
+      clinicalContext: b.clinicalContext,
+    })),
+    chat_history: (chatHistory || []).map((h) => ({
+      role: h.role,
+      content: h.content,
+    })),
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/reports/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    let errorMessage = `Chat error (HTTP ${response.status})`
+    try {
+      const errJson = await response.json()
+      if (errJson && errJson.detail) {
+        errorMessage = errJson.detail
+      }
+    } catch {}
+    throw new Error(errorMessage)
+  }
+
+  return response.json()
+}

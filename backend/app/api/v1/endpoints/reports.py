@@ -2,14 +2,18 @@ import os
 import shutil
 import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from app.schemas.report import ReportAnalysisResponse
+from app.schemas.report import (
+    ReportAnalysisResponse, 
+    ChatRequest, 
+    ChatResponse
+)
 from app.services.extractor import (
     validate_and_save_temp,
     extract_from_pdf,
     extract_from_image,
     parse_detected_rows,
 )
-from app.services.gemini_service import analyze_with_gemini
+from app.services.gemini_service import analyze_with_gemini, chat_about_report
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,10 +31,8 @@ async def analyze_report(
     file_path = None
 
     try:
-        # 1. Validate file format and size, saving securely to a temp directory
         temp_dir, file_path, file_size_bytes, ext = await validate_and_save_temp(file)
         
-        # 2. Extract text based on file type
         if ext == ".pdf":
             extracted_text, page_count, method = extract_from_pdf(file_path)
         elif ext in [".jpg", ".jpeg", ".png"]:
@@ -38,13 +40,11 @@ async def analyze_report(
         else:
             raise HTTPException(status_code=415, detail=f"Unsupported file type: {ext}")
 
-        # 3. Factually isolate detected biomarker lines (never invent missing values)
         detected_rows = parse_detected_rows(extracted_text)
 
         lines = [l for l in extracted_text.splitlines() if l.strip()]
         char_count = len(extracted_text)
 
-        # 4. Integrate Gemini API for structured educational explanation
         gemini_result, ai_engine, ai_status = analyze_with_gemini(extracted_text)
 
         status = "success" if char_count > 0 else "warning"
@@ -72,9 +72,31 @@ async def analyze_report(
         )
 
     finally:
-        # 5. Safe temporary file cleanup
         if temp_dir and os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception as e:
                 logger.error(f"Error removing temporary directory {temp_dir}: {e}")
+
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="Report-grounded educational question answering",
+    description="Answers questions strictly using information present in the selected report. Does not diagnose or prescribe.",
+)
+async def chat_report(request: ChatRequest):
+    try:
+        response = chat_about_report(
+            message=request.message,
+            report_title=request.report_title,
+            report_text=request.report_text,
+            biomarkers=request.biomarkers,
+            chat_history=request.chat_history,
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat service encountered an issue: {str(e)}"
+        )
